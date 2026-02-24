@@ -1,6 +1,6 @@
 /*
   SDL_image:  An example image loading library for use with SDL
-  Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -32,7 +32,6 @@
 
 #include <SDL3/SDL_endian.h>
 #include <SDL3_image/SDL_image.h>
-#include "IMG.h"
 
 #ifdef LOAD_LBM
 
@@ -56,27 +55,29 @@ typedef struct
     Sint16  Hpage;      /* height of the screen in pixels */
 } BMHD;
 
-int IMG_isLBM(SDL_IOStream *src )
+bool IMG_isLBM(SDL_IOStream *src )
 {
     Sint64 start;
-    int   is_LBM;
+    bool is_LBM;
     Uint8 magic[4+4+4];
 
-    if ( !src )
-        return 0;
+    if (!src) {
+        return false;
+    }
+
     start = SDL_TellIO(src);
-    is_LBM = 0;
+    is_LBM = false;
     if (SDL_ReadIO( src, magic, sizeof(magic) ) == sizeof(magic) )
     {
         if ( !SDL_memcmp( magic, "FORM", 4 ) &&
             ( !SDL_memcmp( magic + 8, "PBM ", 4 ) ||
               !SDL_memcmp( magic + 8, "ILBM", 4 ) ) )
         {
-            is_LBM = 1;
+            is_LBM = true;
         }
     }
     SDL_SeekIO(src, start, SDL_IO_SEEK_SET);
-    return( is_LBM );
+    return is_LBM;
 }
 
 SDL_Surface *IMG_LoadLBM_IO(SDL_IOStream *src )
@@ -266,7 +267,7 @@ SDL_Surface *IMG_LoadLBM_IO(SDL_IOStream *src )
     }
 
     if ( bmhd.mask & 2 )               /* There is a transparent color */
-        SDL_SetSurfaceColorKey( Image, SDL_TRUE, bmhd.tcolor );
+        SDL_SetSurfaceColorKey( Image, true, bmhd.tcolor );
 
     /* Update palette information */
 
@@ -495,27 +496,25 @@ done:
             SDL_DestroySurface( Image );
             Image = NULL;
         }
-        IMG_SetError( "%s", error );
+        SDL_SetError( "%s", error );
     }
 
-    return( Image );
+    return Image;
 }
 
 #else /* LOAD_LBM */
-#if defined(_MSC_VER) && _MSC_VER >= 1300
-#pragma warning(disable : 4100) /* warning C4100: 'op' : unreferenced formal parameter */
-#endif
 
 /* See if an image is contained in a data source */
-int IMG_isLBM(SDL_IOStream *src)
+bool IMG_isLBM(SDL_IOStream *src)
 {
-    return(0);
+    return false;
 }
 
 /* Load an IFF type image from an SDL datasource */
 SDL_Surface *IMG_LoadLBM_IO(SDL_IOStream *src)
 {
-    return(NULL);
+    SDL_SetError("SDL_image built without LBM support");
+    return NULL;
 }
 
 #endif /* LOAD_LBM */

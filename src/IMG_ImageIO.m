@@ -1,16 +1,29 @@
 /*
- *  IMG_ImageIO.c
- *  SDL_image
- *
- *  Created by Eric Wing on 1/1/09.
- *  Copyright 2009 __MyCompanyName__. All rights reserved.
- *
- */
+  IMG_ImageIO.m: Support for loading images using the ImageIO library
+  Copyright (C) 2009-2026 Eric Wing <ewing.dev@playcontrol.net>
+
+  This software is provided 'as-is', without any express or implied
+  warranty.  In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution.
+*/
 
 #if defined(__APPLE__) && !defined(SDL_IMAGE_USE_COMMON_BACKEND)
 
 #include <SDL3_image/SDL_image.h>
-#include "IMG.h"
+
+#include "IMG_utils.h"
 
 // Used because CGDataProviderCreate became deprecated in 10.5
 #include <AvailabilityMacros.h>
@@ -45,7 +58,6 @@ static size_t MyProviderGetBytesCallback(void* userdata, void* quartz_buffer, si
 // so you can clean up any resources.
 static void MyProviderReleaseInfoCallback(void* userdata)
 {
-    (void)userdata;
     // What should I put here?
     // I think the user and SDL_IOStream controls closing, so I don't do anything.
 }
@@ -151,17 +163,15 @@ static CGImageRef CreateCGImageFromCGImageSource(CGImageSourceRef image_source)
 {
     CGImageRef image_ref = NULL;
 
-    if(NULL == image_source)
-    {
+    if (!image_source) {
         return NULL;
     }
 
     // Get the first item in the image source (some image formats may
     // contain multiple items).
     image_ref = CGImageSourceCreateImageAtIndex(image_source, 0, NULL);
-    if(NULL == image_ref)
-    {
-        IMG_SetError("CGImageSourceCreateImageAtIndex() failed");
+    if (!image_ref) {
+        SDL_SetError("CGImageSourceCreateImageAtIndex() failed");
     }
     return image_ref;
 }
@@ -324,11 +334,12 @@ static SDL_Surface* Create_SDL_Surface_From_CGImage_Index(CGImageRef image_ref)
                 if (num_entries > (size_t)palette->ncolors) {
                     num_entries = (size_t)palette->ncolors;
                 }
-                palette->ncolors = num_entries;
+                palette->ncolors = (int)num_entries;
                 for (i = 0, entry = entries; i < num_entries; ++i) {
                     palette->colors[i].r = entry[0];
                     palette->colors[i].g = entry[1];
                     palette->colors[i].b = entry[2];
+                    palette->colors[i].a = SDL_ALPHA_OPAQUE;
                     entry += num_components;
                 }
             }
@@ -345,66 +356,38 @@ static SDL_Surface* Create_SDL_Surface_From_CGImage_Index(CGImageRef image_ref)
 
     return surface;
 }
-static SDL_Surface* Create_SDL_Surface_From_CGImage(CGImageRef image_ref)
+
+static SDL_Surface *Create_SDL_Surface_From_CGImage(CGImageRef image_ref, CFDictionaryRef properties)
 {
+    SDL_Surface *surface;
     CGColorSpaceRef color_space = CGImageGetColorSpace(image_ref);
     if (CGColorSpaceGetModel(color_space) == kCGColorSpaceModelIndexed) {
-        return Create_SDL_Surface_From_CGImage_Index(image_ref);
+        surface = Create_SDL_Surface_From_CGImage_Index(image_ref);
     } else {
-        return Create_SDL_Surface_From_CGImage_RGB(image_ref);
+        surface = Create_SDL_Surface_From_CGImage_RGB(image_ref);
     }
+    if (surface && properties) {
+        CFNumberRef numval;
+        if (CFDictionaryGetValueIfPresent(properties, kCGImagePropertyOrientation, (const void **)&numval)) {
+            CGImagePropertyOrientation orientation;
+            CFNumberGetValue(numval, kCFNumberSInt32Type, &orientation);
+            surface = IMG_ApplyOrientation(surface, orientation);
+        }
+    }
+    return surface;
 }
 
 
-#ifdef JPG_USES_IMAGEIO
-
-int IMG_InitJPG(void)
+static bool Internal_isType (SDL_IOStream *rw_ops, CFStringRef uti_string_to_test)
 {
-    return 0;
-}
+    bool is_type = false;
 
-void IMG_QuitJPG(void)
-{
-}
-
-#endif /* JPG_USES_IMAGEIO */
-
-#ifdef PNG_USES_IMAGEIO
-
-int IMG_InitPNG(void)
-{
-    return 0;
-}
-
-void IMG_QuitPNG(void)
-{
-}
-
-#endif /* PNG_USES_IMAGEIO */
-
-int IMG_InitTIF(void)
-{
-    return 0;
-}
-
-void IMG_QuitTIF(void)
-{
-}
-
-static int Internal_isType (SDL_IOStream *rw_ops, CFStringRef uti_string_to_test)
-{
-    int is_type = 0;
-
-    if (rw_ops == NULL)
-        return 0;
+    if (rw_ops == NULL) {
+        return false;
+    }
 
     Sint64 start = SDL_TellIO(rw_ops);
-    CFDictionaryRef hint_dictionary = CreateHintDictionary(uti_string_to_test);
-    CGImageSourceRef image_source = CreateCGImageSourceFromIOStream(rw_ops, hint_dictionary);
-
-    if (hint_dictionary != NULL) {
-        CFRelease(hint_dictionary);
-    }
+    CGImageSourceRef image_source = CreateCGImageSourceFromIOStream(rw_ops, NULL);
 
     if (NULL == image_source) {
         // reset the file pointer
@@ -421,7 +404,7 @@ static int Internal_isType (SDL_IOStream *rw_ops, CFStringRef uti_string_to_test
     //  CFShow(uti_type);
 
     // Unsure if we really want conformance or equality
-    is_type = (int)UTTypeConformsTo(uti_string_to_test, uti_type);
+    is_type = UTTypeConformsTo(uti_string_to_test, uti_type);
 
     CFRelease(image_source);
 
@@ -432,25 +415,25 @@ static int Internal_isType (SDL_IOStream *rw_ops, CFStringRef uti_string_to_test
 
 #ifdef BMP_USES_IMAGEIO
 
-int IMG_isCUR(SDL_IOStream *src)
+bool IMG_isCUR(SDL_IOStream *src)
 {
     /* FIXME: Is this a supported type? */
     return Internal_isType(src, CFSTR("com.microsoft.cur"));
 }
 
-int IMG_isICO(SDL_IOStream *src)
+bool IMG_isICO(SDL_IOStream *src)
 {
     return Internal_isType(src, kUTTypeICO);
 }
 
-int IMG_isBMP(SDL_IOStream *src)
+bool IMG_isBMP(SDL_IOStream *src)
 {
     return Internal_isType(src, kUTTypeBMP);
 }
 
 #endif /* BMP_USES_IMAGEIO */
 
-int IMG_isGIF(SDL_IOStream *src)
+bool IMG_isGIF(SDL_IOStream *src)
 {
     return Internal_isType(src, kUTTypeGIF);
 }
@@ -458,72 +441,67 @@ int IMG_isGIF(SDL_IOStream *src)
 #ifdef JPG_USES_IMAGEIO
 
 // Note: JPEG 2000 is kUTTypeJPEG2000
-int IMG_isJPG(SDL_IOStream *src)
+bool IMG_isJPG(SDL_IOStream *src)
 {
     return Internal_isType(src, kUTTypeJPEG);
 }
 
 #endif /* JPG_USES_IMAGEIO */
 
-#ifdef PNG_USES_IMAGEIO
-
-int IMG_isPNG(SDL_IOStream *src)
-{
-    return Internal_isType(src, kUTTypePNG);
-}
-
-#endif /* PNG_USES_IMAGEIO */
-
 // This isn't a public API function. Apple seems to be able to identify tga's.
-int IMG_isTGA(SDL_IOStream *src)
+bool IMG_isTGA(SDL_IOStream *src)
 {
     return Internal_isType(src, CFSTR("com.truevision.tga-image"));
 }
 
-int IMG_isTIF(SDL_IOStream *src)
+bool IMG_isTIF(SDL_IOStream *src)
 {
     return Internal_isType(src, kUTTypeTIFF);
 }
 
-static SDL_Surface *LoadImageFromIOStream (SDL_IOStream *rw_ops, CFStringRef uti_string_hint)
+static SDL_Surface *LoadImageFromIOStream(SDL_IOStream *rw_ops, CFStringRef uti_string_hint)
 {
+    SDL_Surface *surface = NULL;
     CFDictionaryRef hint_dictionary = CreateHintDictionary(uti_string_hint);
     CGImageSourceRef image_source = CreateCGImageSourceFromIOStream(rw_ops, hint_dictionary);
 
-    if (hint_dictionary != NULL)
+    if (hint_dictionary) {
         CFRelease(hint_dictionary);
+    }
 
-    if (NULL == image_source)
-        return NULL;
-
-    CGImageRef image_ref = CreateCGImageFromCGImageSource(image_source);
-    CFRelease(image_source);
-
-    if (NULL == image_ref)
-        return NULL;
-    SDL_Surface *sdl_surface = Create_SDL_Surface_From_CGImage(image_ref);
-    CFRelease(image_ref);
-
-    return sdl_surface;
+    if (image_source) {
+        CFDictionaryRef properties = CGImageSourceCopyPropertiesAtIndex(image_source, 0, NULL);
+        CGImageRef image_ref = CreateCGImageFromCGImageSource(image_source);
+        if (image_ref) {
+            surface = Create_SDL_Surface_From_CGImage(image_ref, properties);
+            CFRelease(image_ref);
+        }
+        if (properties) {
+            CFRelease(properties);
+        }
+        CFRelease(image_source);
+    }
+    return surface;
 }
 
-static SDL_Surface* LoadImageFromFile (const char *file)
+static SDL_Surface *LoadImageFromFile(const char *file)
 {
-    CGImageSourceRef image_source = NULL;
+    SDL_Surface *surface = NULL;
+    CGImageSourceRef image_source = CreateCGImageSourceFromFile(file);
 
-    image_source = CreateCGImageSourceFromFile(file);
-
-    if(NULL == image_source)
-        return NULL;
-
-    CGImageRef image_ref = CreateCGImageFromCGImageSource(image_source);
-    CFRelease(image_source);
-
-    if (NULL == image_ref)
-        return NULL;
-    SDL_Surface *sdl_surface = Create_SDL_Surface_From_CGImage(image_ref);
-    CFRelease(image_ref);
-    return sdl_surface;
+    if (image_source) {
+        CFDictionaryRef properties = CGImageSourceCopyPropertiesAtIndex(image_source, 0, NULL);
+        CGImageRef image_ref = CreateCGImageFromCGImageSource(image_source);
+        if (image_ref) {
+            surface = Create_SDL_Surface_From_CGImage(image_ref, properties);
+            CFRelease(image_ref);
+        }
+        if (properties) {
+            CFRelease(properties);
+        }
+        CFRelease(image_source);
+    }
+    return surface;
 }
 
 #ifdef BMP_USES_IMAGEIO
@@ -562,7 +540,7 @@ SDL_Surface* IMG_LoadJPG_IO (SDL_IOStream *src)
 
 #ifdef PNG_USES_IMAGEIO
 
-SDL_Surface* IMG_LoadPNG_IO (SDL_IOStream *src)
+SDL_Surface* IMG_LoadPNG_ImageIO (SDL_IOStream *src)
 {
     return LoadImageFromIOStream (src, kUTTypePNG);
 }

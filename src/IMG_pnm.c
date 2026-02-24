@@ -1,6 +1,6 @@
 /*
   SDL_image:  An example image loading library for use with SDL
-  Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -28,21 +28,22 @@
  */
 
 #include <SDL3_image/SDL_image.h>
-#include "IMG.h"
 
 #ifdef LOAD_PNM
 
 /* See if an image is contained in a data source */
-int IMG_isPNM(SDL_IOStream *src)
+bool IMG_isPNM(SDL_IOStream *src)
 {
     Sint64 start;
-    int is_PNM;
+    bool is_PNM;
     char magic[2];
 
-    if ( !src )
-        return 0;
+    if (!src) {
+        return false;
+    }
+
     start = SDL_TellIO(src);
-    is_PNM = 0;
+    is_PNM = false;
     if (SDL_ReadIO(src, magic, sizeof(magic)) == sizeof(magic) ) {
         /*
          * PNM magic signatures:
@@ -55,11 +56,11 @@ int IMG_isPNM(SDL_IOStream *src)
          * P7   PAM, a general wrapper for PNM data
          */
         if ( magic[0] == 'P' && magic[1] >= '1' && magic[1] <= '6' ) {
-            is_PNM = 1;
+            is_PNM = true;
         }
     }
     SDL_SeekIO(src, start, SDL_IO_SEEK_SET);
-    return(is_PNM);
+    return is_PNM;
 }
 
 /* read a non-negative integer from the source. return -1 upon error */
@@ -74,7 +75,7 @@ static int ReadNumber(SDL_IOStream *src)
     /* Skip leading whitespace */
     do {
         if (SDL_ReadIO(src, &ch, 1) != 1 ) {
-            return(-1);
+            return -1;
         }
         /* Eat comments as whitespace */
         if ( ch == '#' ) {  /* Comment is '#' to end of line */
@@ -103,7 +104,7 @@ static int ReadNumber(SDL_IOStream *src)
         }
     } while ( SDL_isdigit(ch) );
 
-    return(number);
+    return number;
 }
 
 SDL_Surface *IMG_LoadPNM_IO(SDL_IOStream *src)
@@ -246,26 +247,24 @@ done:
             SDL_DestroySurface(surface);
             surface = NULL;
         }
-        IMG_SetError("%s", error);
+        SDL_SetError("%s", error);
     }
-    return(surface);
+    return surface;
 }
 
 #else
-#if defined(_MSC_VER) && _MSC_VER >= 1300
-#pragma warning(disable : 4100) /* warning C4100: 'op' : unreferenced formal parameter */
-#endif
 
 /* See if an image is contained in a data source */
-int IMG_isPNM(SDL_IOStream *src)
+bool IMG_isPNM(SDL_IOStream *src)
 {
-    return(0);
+    return false;
 }
 
 /* Load a PNM type image from an SDL datasource */
 SDL_Surface *IMG_LoadPNM_IO(SDL_IOStream *src)
 {
-    return(NULL);
+    SDL_SetError("SDL_image built without PNM support");
+    return NULL;
 }
 
 #endif /* LOAD_PNM */

@@ -1,6 +1,6 @@
 /*
   SDL_image:  An example image loading library for use with SDL
-  Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -36,7 +36,6 @@
 #include <SDL3/SDL_endian.h>
 
 #include <SDL3_image/SDL_image.h>
-#include "IMG.h"
 
 #ifdef LOAD_PCX
 
@@ -58,30 +57,32 @@ struct PCXheader {
 };
 
 /* See if an image is contained in a data source */
-int IMG_isPCX(SDL_IOStream *src)
+bool IMG_isPCX(SDL_IOStream *src)
 {
     Sint64 start;
-    int is_PCX;
+    bool is_PCX;
     const int ZSoft_Manufacturer = 10;
     const int PC_Paintbrush_Version = 5;
     const int PCX_Uncompressed_Encoding = 0;
     const int PCX_RunLength_Encoding = 1;
     struct PCXheader pcxh;
 
-    if ( !src )
-        return 0;
+    if (!src) {
+        return false;
+    }
+
     start = SDL_TellIO(src);
-    is_PCX = 0;
+    is_PCX = false;
     if (SDL_ReadIO(src, &pcxh, sizeof(pcxh)) == sizeof(pcxh) ) {
         if ( (pcxh.Manufacturer == ZSoft_Manufacturer) &&
              (pcxh.Version == PC_Paintbrush_Version) &&
              (pcxh.Encoding == PCX_RunLength_Encoding ||
               pcxh.Encoding == PCX_Uncompressed_Encoding) ) {
-            is_PCX = 1;
+            is_PCX = true;
         }
     }
     SDL_SeekIO(src, start, SDL_IO_SEEK_SET);
-    return(is_PCX);
+    return is_PCX;
 }
 
 /* Load a PCX type image from an SDL datasource */
@@ -286,26 +287,24 @@ done:
             SDL_DestroySurface(surface);
             surface = NULL;
         }
-        IMG_SetError("%s", error);
+        SDL_SetError("%s", error);
     }
-    return(surface);
+    return surface;
 }
 
 #else
-#if defined(_MSC_VER) && _MSC_VER >= 1300
-#pragma warning(disable : 4100) /* warning C4100: 'op' : unreferenced formal parameter */
-#endif
 
 /* See if an image is contained in a data source */
-int IMG_isPCX(SDL_IOStream *src)
+bool IMG_isPCX(SDL_IOStream *src)
 {
-    return(0);
+    return false;
 }
 
 /* Load a PCX type image from an SDL datasource */
 SDL_Surface *IMG_LoadPCX_IO(SDL_IOStream *src)
 {
-    return(NULL);
+    SDL_SetError("SDL_image built without PCX support");
+    return NULL;
 }
 
 #endif /* LOAD_PCX */

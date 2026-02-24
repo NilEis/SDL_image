@@ -1,6 +1,6 @@
 /*
   SDL_image:  An example image loading library for use with SDL
-  Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -22,9 +22,17 @@
 /* This is a JXL image file loading framework */
 
 #include <SDL3_image/SDL_image.h>
-#include "IMG.h"
 
 #ifdef LOAD_JXL
+
+#if defined(LOAD_JXL_DYNAMIC) && defined(SDL_ELF_NOTE_DLOPEN)
+SDL_ELF_NOTE_DLOPEN(
+    "libjxl",
+    "Support for JPEG XL images using libjxl",
+    SDL_ELF_NOTE_DLOPEN_PRIORITY_SUGGESTED,
+    LOAD_JXL_DYNAMIC
+)
+#endif
 
 #include <jxl/decode.h>
 
@@ -45,24 +53,24 @@ static struct {
 #ifdef LOAD_JXL_DYNAMIC
 #define FUNCTION_LOADER(FUNC, SIG) \
     lib.FUNC = (SIG) SDL_LoadFunction(lib.handle, #FUNC); \
-    if (lib.FUNC == NULL) { SDL_UnloadObject(lib.handle); return -1; }
+    if (lib.FUNC == NULL) { SDL_UnloadObject(lib.handle); return false; }
 #else
 #define FUNCTION_LOADER(FUNC, SIG) \
     lib.FUNC = FUNC; \
-    if (lib.FUNC == NULL) { IMG_SetError("Missing jxl.framework"); return -1; }
+    if (lib.FUNC == NULL) { return SDL_SetError("Missing jxl.framework"); }
 #endif
 
-int IMG_InitJXL(void)
 #ifdef __APPLE__
     /* Need to turn off optimizations so weak framework load check works */
     __attribute__ ((optnone))
 #endif
+static bool IMG_InitJXL(void)
 {
     if ( lib.loaded == 0 ) {
 #ifdef LOAD_JXL_DYNAMIC
         lib.handle = SDL_LoadObject(LOAD_JXL_DYNAMIC);
         if ( lib.handle == NULL ) {
-            return -1;
+            return false;
         }
 #endif
         FUNCTION_LOADER(JxlDecoderCreate, JxlDecoder* (*)(const JxlMemoryManager* memory_manager))
@@ -76,8 +84,9 @@ int IMG_InitJXL(void)
     }
     ++lib.loaded;
 
-    return 0;
+    return true;
 }
+#if 0
 void IMG_QuitJXL(void)
 {
     if ( lib.loaded == 0 ) {
@@ -90,23 +99,25 @@ void IMG_QuitJXL(void)
     }
     --lib.loaded;
 }
+#endif // 0
 
 /* See if an image is contained in a data source */
-int IMG_isJXL(SDL_IOStream *src)
+bool IMG_isJXL(SDL_IOStream *src)
 {
     Sint64 start;
-    int is_JXL;
+    bool is_JXL;
     Uint8 magic[12];
 
     if (!src) {
-        return 0;
+        return false;
     }
+
     start = SDL_TellIO(src);
-    is_JXL = 0;
+    is_JXL = false;
     if (SDL_ReadIO(src, magic, 2) == 2 ) {
         if ( magic[0] == 0xFF && magic[1] == 0x0A ) {
             /* This is a JXL codestream */
-            is_JXL = 1;
+            is_JXL = true;
         } else {
             if (SDL_ReadIO(src, &magic[2], sizeof(magic) - 2) == (sizeof(magic) - 2) ) {
                 if ( magic[0] == 0x00 && magic[1] == 0x00 &&
@@ -116,13 +127,13 @@ int IMG_isJXL(SDL_IOStream *src)
                      magic[8] == 0x0D && magic[9] == 0x0A &&
                      magic[10] == 0x87 && magic[11] == 0x0A ) {
                     /* This is a JXL container */
-                    is_JXL = 1;
+                    is_JXL = true;
                 }
             }
         }
     }
     SDL_SeekIO(src, start, SDL_IO_SEEK_SET);
-    return(is_JXL);
+    return is_JXL;
 }
 
 /* Load a JXL type image from an SDL datasource */
@@ -145,28 +156,28 @@ SDL_Surface *IMG_LoadJXL_IO(SDL_IOStream *src)
     }
     start = SDL_TellIO(src);
 
-    if ((IMG_Init(IMG_INIT_JXL) & IMG_INIT_JXL) == 0) {
+    if (!IMG_InitJXL()) {
         return NULL;
     }
 
-    data = (unsigned char *)SDL_LoadFile_IO(src, &datasize, SDL_FALSE);
+    data = (unsigned char *)SDL_LoadFile_IO(src, &datasize, false);
     if (!data) {
         return NULL;
     }
 
     decoder = lib.JxlDecoderCreate(NULL);
     if (!decoder) {
-        IMG_SetError("Couldn't create JXL decoder");
+        SDL_SetError("Couldn't create JXL decoder");
         goto done;
     }
 
     if (lib.JxlDecoderSubscribeEvents(decoder, JXL_DEC_BASIC_INFO | JXL_DEC_FULL_IMAGE) != JXL_DEC_SUCCESS) {
-        IMG_SetError("Couldn't subscribe to JXL events");
+        SDL_SetError("Couldn't subscribe to JXL events");
         goto done;
     }
 
     if (lib.JxlDecoderSetInput(decoder, data, datasize) != JXL_DEC_SUCCESS) {
-        IMG_SetError("Couldn't set JXL input");
+        SDL_SetError("Couldn't set JXL input");
         goto done;
     }
 
@@ -177,24 +188,24 @@ SDL_Surface *IMG_LoadJXL_IO(SDL_IOStream *src)
 
         switch (status) {
         case JXL_DEC_ERROR:
-            IMG_SetError("JXL decoder error");
+            SDL_SetError("JXL decoder error");
             goto done;
         case JXL_DEC_NEED_MORE_INPUT:
-            IMG_SetError("Incomplete JXL image");
+            SDL_SetError("Incomplete JXL image");
             goto done;
         case JXL_DEC_BASIC_INFO:
             if (lib.JxlDecoderGetBasicInfo(decoder, &info) != JXL_DEC_SUCCESS) {
-                IMG_SetError("Couldn't get JXL image info");
+                SDL_SetError("Couldn't get JXL image info");
                 goto done;
             }
             break;
         case JXL_DEC_NEED_IMAGE_OUT_BUFFER:
             if (lib.JxlDecoderImageOutBufferSize(decoder, &format, &outputsize) != JXL_DEC_SUCCESS) {
-                IMG_SetError("Couldn't get JXL image size");
+                SDL_SetError("Couldn't get JXL image size");
                 goto done;
             }
             if (info.xsize == 0 || info.ysize == 0) {
-                IMG_SetError("Couldn't get pixels for %dx%d JXL image", info.xsize, info.ysize);
+                SDL_SetError("Couldn't get pixels for %dx%d JXL image", info.xsize, info.ysize);
                 goto done;
             }
             if (pixels) {
@@ -210,7 +221,7 @@ SDL_Surface *IMG_LoadJXL_IO(SDL_IOStream *src)
             }
             pitch = (int)(outputsize / info.ysize);
             if (lib.JxlDecoderSetImageOutBuffer(decoder, &format, pixels, outputsize) != JXL_DEC_SUCCESS) {
-                IMG_SetError("Couldn't set JXL output buffer");
+                SDL_SetError("Couldn't set JXL output buffer");
                 goto done;
             }
             break;
@@ -227,7 +238,7 @@ SDL_Surface *IMG_LoadJXL_IO(SDL_IOStream *src)
             }
             goto done;
         default:
-            IMG_SetError("Unknown JXL decoding status: %d", status);
+            SDL_SetError("Unknown JXL decoding status: %d", status);
             goto done;
         }
     }
@@ -249,32 +260,18 @@ done:
 }
 
 #else
-#if defined(_MSC_VER) && _MSC_VER >= 1300
-#pragma warning(disable : 4100) /* warning C4100: 'op' : unreferenced formal parameter */
-#endif
-
-int IMG_InitJXL(void)
-{
-    IMG_SetError("JXL images are not supported");
-    return(-1);
-}
-
-void IMG_QuitJXL(void)
-{
-}
 
 /* See if an image is contained in a data source */
-int IMG_isJXL(SDL_IOStream *src)
+bool IMG_isJXL(SDL_IOStream *src)
 {
-    (void)src;
-    return(0);
+    return false;
 }
 
 /* Load a JXL type image from an SDL datasource */
 SDL_Surface *IMG_LoadJXL_IO(SDL_IOStream *src)
 {
-    (void)src;
-    return(NULL);
+    SDL_SetError("SDL_image built without JXL support");
+    return NULL;
 }
 
 #endif /* LOAD_JXL */

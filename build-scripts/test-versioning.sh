@@ -32,7 +32,6 @@ not_ok () {
 major=$(sed -ne 's/^set(MAJOR_VERSION \([0-9]*\))$/\1/p' CMakeLists.txt)
 minor=$(sed -ne 's/^set(MINOR_VERSION \([0-9]*\))$/\1/p' CMakeLists.txt)
 micro=$(sed -ne 's/^set(MICRO_VERSION \([0-9]*\))$/\1/p' CMakeLists.txt)
-ref_sdl_req=$(sed -ne 's/^set(SDL_REQUIRED_VERSION \([0-9.]*\))$/\1/p' CMakeLists.txt)
 version="${major}.${minor}.${micro}"
 
 if [ "$ref_version" = "$version" ]; then
@@ -136,14 +135,6 @@ if [ "$ref" = "$dylib_cur" ]; then
     ok "project.pbxproj DYLIB_CURRENT_VERSION is consistent"
 else
     not_ok "project.pbxproj DYLIB_CURRENT_VERSION is inconsistent, expected $ref, got $dylib_cur"
-fi
-
-sdl_req=$(sed -ne 's/\$sdl3_version = "\([0-9.]*\)"$/\1/p' .github/fetch_sdl_vc.ps1)
-
-if [ "$ref_sdl_req" = "$sdl_req" ]; then
-    ok ".github/fetch_sdl_vc.ps1 $sdl_req"
-else
-    not_ok ".github/fetch_sdl_vc.ps1 sdl3_version=$sdl_req disagrees with CMakeLists.txt SDL_REQUIRED_VERSION=$ref_sdl_req"
 fi
 
 echo "1..$tests"

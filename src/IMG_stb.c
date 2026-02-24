@@ -1,6 +1,6 @@
 /*
   SDL_image:  An example image loading library for use with SDL
-  Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -20,7 +20,6 @@
 */
 
 #include <SDL3_image/SDL_image.h>
-#include "IMG.h"
 
 #ifdef USE_STBIMAGE
 
@@ -71,7 +70,7 @@ static void IMG_LoadSTB_IO_skip(void *user, int n)
 static int IMG_LoadSTB_IO_eof(void *user)
 {
     SDL_IOStream *src = (SDL_IOStream*)user;
-    return (SDL_GetIOStatus(src) == SDL_IO_STATUS_EOF);
+    return SDL_GetIOStatus(src) == SDL_IO_STATUS_EOF;
 }
 
 SDL_Surface *IMG_LoadSTB_IO(SDL_IOStream *src)
@@ -82,7 +81,7 @@ SDL_Surface *IMG_LoadSTB_IO(SDL_IOStream *src)
     stbi_uc *pixels;
     stbi_io_callbacks rw_callbacks;
     SDL_Surface *surface = NULL;
-    SDL_bool use_palette = SDL_FALSE;
+    bool use_palette = false;
     unsigned int palette_colors[256];
 
     if (!src) {
@@ -102,7 +101,7 @@ SDL_Surface *IMG_LoadSTB_IO(SDL_IOStream *src)
             magic[14] == 'D' &&
             magic[15] == 'R' &&
             magic[25] == PNG_COLOR_INDEXED) {
-            use_palette = SDL_TRUE;
+            use_palette = true;
         }
     }
     SDL_SeekIO(src, start, SDL_IO_SEEK_SET);
@@ -148,9 +147,9 @@ SDL_Surface *IMG_LoadSTB_IO(SDL_IOStream *src)
             w
         );
         if (surface) {
-            SDL_bool has_colorkey = SDL_FALSE;
+            bool has_colorkey = false;
             int colorkey_index = -1;
-            SDL_bool has_alpha = SDL_FALSE;
+            bool has_alpha = false;
             SDL_Palette *palette = SDL_CreateSurfacePalette(surface);
             if (palette) {
                 int i;
@@ -163,11 +162,11 @@ SDL_Surface *IMG_LoadSTB_IO(SDL_IOStream *src)
                     palette->colors[i].a = *palette_bytes++;
                     if (palette->colors[i].a != SDL_ALPHA_OPAQUE) {
                         if (palette->colors[i].a == SDL_ALPHA_TRANSPARENT && !has_colorkey) {
-                            has_colorkey = SDL_TRUE;
+                            has_colorkey = true;
                             colorkey_index = i;
                         } else {
                             /* Partial opacity or multiple colorkeys */
-                            has_alpha = SDL_TRUE;
+                            has_alpha = true;
                         }
                     }
                 }
@@ -175,7 +174,9 @@ SDL_Surface *IMG_LoadSTB_IO(SDL_IOStream *src)
             if (has_alpha) {
                 SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
             } else if (has_colorkey) {
-                SDL_SetSurfaceColorKey(surface, SDL_TRUE, colorkey_index);
+                /* remove redundant pixel alpha before setting colorkey */
+                palette->colors[colorkey_index].a = SDL_ALPHA_OPAQUE;
+                SDL_SetSurfaceColorKey(surface, true, colorkey_index);
             }
 
             /* FIXME: This sucks. It'd be better to allocate the surface first, then
@@ -241,7 +242,7 @@ SDL_Surface *IMG_LoadSTB_IO(SDL_IOStream *src)
             stbi_image_free(pixels);
         }
     } else {
-        IMG_SetError("Unknown image format: %d", format);
+        SDL_SetError("Unknown image format: %d", format);
     }
 
     if (!surface) {
